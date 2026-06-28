@@ -15,6 +15,7 @@ A premium Tampermonkey userscript featuring:
 - Playback timing offset adjustment
 - Auto hide/show during playback
 - YouTube & YouTube Music support
+
 ### Ultra Enhancer for TimStreams
 A premium Tampermonkey userscript featuring:
 
@@ -25,6 +26,19 @@ A premium Tampermonkey userscript featuring:
 - Theater mode
 - Stream URL extraction
 - Persistent settings
+
+### NSE ETF Fair Value - Smart Ticker
+
+A premium Tampermonkey userscript featuring:
+
+* Real-time ETF premium/discount calculation
+* Live Last Traded Price (LTP) tracking
+* Automatic i-NAV detection
+* Smart compatibility with updated NSE layouts
+* Floating glassmorphism ticker interface
+* Premium/discount visual indicators
+* Automatic ETF symbol detection
+* Continuous live data monitoring
 
 ## License
 

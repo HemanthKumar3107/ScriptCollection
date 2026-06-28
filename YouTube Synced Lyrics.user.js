@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         YouTube Synced Lyrics
-// @version      9.7
+// @version      1.0
 // @description  Advanced synced lyrics overlay for YouTube and YouTube Music featuring live auto-sync, draggable floating UI, lyric source selection, and timing adjustment controls.
 // @author       HemanthKumar3107
 // @match        *://www.youtube.com/*
