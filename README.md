@@ -11,7 +11,6 @@ My personal collection of scripts, automation tools, browser userscripts, Tradin
 | 📈 **NSE ETF Fair Value** | Live LTP, i-NAV, premium/discount tracker |
 | 📊 **Sensibull Dashboard** | PCR, Max Pain, ATM, VIX, expected move |
 
-
 ## License
 
 Personal repository.
