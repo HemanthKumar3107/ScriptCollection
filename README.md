@@ -2,43 +2,15 @@
 
 My personal collection of scripts, automation tools, browser userscripts, TradingView Pine Scripts, and development experiments.
 
-## Featured Projects
+## 🚀 Featured Projects
 
-### YouTube Synced Lyrics
-A premium Tampermonkey userscript featuring:
+| Project | Highlights |
+|---------|------------|
+| 🎵 **YouTube Synced Lyrics** | Auto-synced lyrics, source selection, draggable overlay |
+| 🎬 **Ultra Enhancer** | Visual profiles, telemetry, theater mode, stream extraction |
+| 📈 **NSE ETF Fair Value** | Live LTP, i-NAV, premium/discount tracker |
+| 📊 **Sensibull Dashboard** | PCR, Max Pain, ATM, VIX, expected move |
 
-- Live synchronized lyrics overlay
-- Automatic lyric detection and matching
-- Multiple lyric source selection
-- Draggable and resizable floating panel
-- Real-time lyric synchronization
-- Playback timing offset adjustment
-- Auto hide/show during playback
-- YouTube & YouTube Music support
-
-### Ultra Enhancer for TimStreams
-A premium Tampermonkey userscript featuring:
-
-- Dynamic visual profiles
-- Persistent custom presets
-- Real-time playback telemetry
-- Hold-to-compare
-- Theater mode
-- Stream URL extraction
-- Persistent settings
-
-### NSE ETF Fair Value - Smart Ticker
-
-A premium Tampermonkey userscript featuring:
-
-* Real-time ETF premium/discount calculation
-* Live Last Traded Price (LTP) tracking
-* Automatic i-NAV detection
-* Smart compatibility with updated NSE layouts
-* Floating glassmorphism ticker interface
-* Premium/discount visual indicators
-* Automatic ETF symbol detection
-* Continuous live data monitoring
 
 ## License
 
