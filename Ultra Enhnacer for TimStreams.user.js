@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ultra Enhancer for TimStreams™
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      2.0
 // @description  Premium video enhancement suite featuring dynamic visual profiles, persistent custom presets, real-time playback telemetry, before/after comparison, theater mode, and intelligent stream extraction for TimStreams.
 // @author       HemanthKumar3107
 // @match        https://*.timstreams.st/watch*
@@ -16,30 +16,24 @@
 (function() {
     'use strict';
 
-    // Centralized Immutable Structural Selectors
     const SELECTORS = {
-        TOOLBAR_ANCHOR: '.stream-toolbar',
-        JW_CONTAINER: '#jwPlayerContainer',
-        EMBED_FRAME: '#streamFrame',
-        NATIVE_SELECTOR: '#streamSelect',
-        NATIVE_SOURCE_BTNS: '.stream-source-btn',
-        NATIVE_VIDEO: '#jwPlayerContainer video, video'
+        TOOLBAR_ANCHOR: 'div.flex.items-center.justify-between.gap-3.mt-3',
+        EMBED_FRAME: 'iframe[src*="vileembeds"]',
+        NATIVE_DROPDOWN_CONTAINER: 'div.relative.inline-block.text-left',
+        NATIVE_DROPDOWN_MENU: 'div.absolute.right-0.z-10, div[class*="absolute"][class*="z-"]'
     };
 
-    // Centralized Immutable Configuration Values & Constants
     const CONFIG = {
-        TICKER_INTERVAL: 1000,          // Balanced polling rate for real-time telemetry updates
-        COPY_RESET_TIMEOUT: 1800,       // Time before "Copied!" text reverts back
-        DOM_CHECK_INTERVAL: 400,        // Pipeline acceleration speed to catch layout generation
+        TICKER_INTERVAL: 1000,
+        DOM_CHECK_INTERVAL: 400,
         SLIDER_MIN: 50,
         SLIDER_MAX: 200,
         SATURATE_MIN: 0,
-        Z_INDEX_PANEL: 2005,
-        Z_INDEX_DIMMER: 1999,
-        Z_INDEX_ELEVATED: 2001
+        Z_INDEX_PANEL: 2020,         // Elevated to ensure it sits cleanly above the player window
+        Z_INDEX_DIMMER: 2010,
+        Z_INDEX_ELEVATED: 2015
     };
 
-    // Storage Keys For Persistent Caching
     const STORAGE_KEYS = {
         CONFIG: 'ts_enhancer_config_v1',
         ACTIVE_PROFILE: 'ts_enhancer_profile_v2',
@@ -47,230 +41,6 @@
         USER_PROFILES: 'ts_enhancer_user_profiles_v1'
     };
 
-    // Style Sheets Layer Integration
-    GM_addStyle(`
-        #ts-enhancer-glass {
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-            background: rgba(18, 18, 26, 0.75) !important;
-            backdrop-filter: blur(25px) saturate(210%);
-            -webkit-backdrop-filter: blur(25px) saturate(210%);
-            border: 1px solid rgba(255, 255, 255, 0.09);
-            border-radius: 20px;
-            padding: 22px;
-            margin: 16px var(--card-padding, 0px);
-            font-family: 'Inter', system-ui, sans-serif;
-            color: #f1f5f9;
-            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.15);
-            z-index: ${CONFIG.Z_INDEX_PANEL} !important;
-            position: relative;
-        }
-        .ts-section-row {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 16px;
-        }
-        .ts-slider-wrapper {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            min-width: 160px;
-            flex: 1;
-        }
-        .ts-slider-label-zone {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #94a3b8;
-            letter-spacing: 0.6px;
-            text-transform: uppercase;
-        }
-        .ts-custom-track {
-            position: relative;
-            width: 100%;
-            height: 14px;
-            background: rgba(0, 0, 0, 0.4);
-            border-radius: 99px;
-            cursor: ew-resize;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.05);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            transition: border-color 0.2s;
-        }
-        .ts-custom-track:hover { border-color: rgba(59, 130, 246, 0.4); }
-        .ts-custom-fill {
-            position: absolute;
-            left: 0; top: 0; height: 100%;
-            background: linear-gradient(90deg, #2563eb, #3b82f6, #60a5fa);
-            border-radius: 99px;
-            pointer-events: none;
-            box-shadow: inset 0 1px 1px rgba(255,255,255,0.3), 0 0 12px rgba(59, 130, 246, 0.4);
-        }
-        .ts-custom-thumb {
-            position: absolute;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            background: #ffffff;
-            border-radius: 50%;
-            pointer-events: none;
-            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 4px rgba(255, 255, 255, 0.8);
-            transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .ts-custom-track:hover .ts-custom-thumb { transform: translate(-50%, -50%) scale(1.1); }
-        .ts-dd-container { position: relative; display: inline-block; min-width: 220px; }
-        .ts-dd-trigger {
-            width: 100%;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.09);
-            color: #f1f5f9;
-            padding: 9px 16px;
-            border-radius: 12px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 0.82rem;
-            font-weight: 600;
-            transition: all 0.2s ease;
-        }
-        .ts-dd-trigger:hover, .ts-dd-container.open .ts-dd-trigger {
-            border-color: rgba(59, 130, 246, 0.5);
-            background: rgba(59, 130, 246, 0.12);
-            color: #60a5fa;
-        }
-        .ts-dd-trigger i.chevron { transition: transform 0.25s ease; font-size: 0.75rem; color: #94a3b8; }
-        .ts-dd-container.open .ts-dd-trigger i.chevron { transform: rotate(180deg); color: #60a5fa; }
-        .ts-dd-menu {
-            position: absolute;
-            top: calc(100% + 6px); left: 0; width: 100%;
-            background: rgba(23, 23, 33, 0.98);
-            backdrop-filter: blur(25px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-            padding: 6px;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.5);
-            display: none;
-            flex-direction: column;
-            gap: 2px;
-            z-index: 2100;
-            max-height: 320px;
-            overflow-y: auto;
-        }
-        .ts-dd-container.open .ts-dd-menu { display: flex; }
-        .ts-dd-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 9px 12px;
-            color: #cbd5e1;
-            font-size: 0.82rem;
-            font-weight: 500;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-        .ts-dd-item i { width: 16px; text-align: center; font-size: 0.88rem; color: #94a3b8; }
-        .ts-dd-item:hover { background: rgba(255, 255, 255, 0.06); color: #ffffff; }
-        .ts-dd-item.selected {
-            background: rgba(37, 99, 235, 0.2);
-            color: #60a5fa;
-            font-weight: 600;
-            border: 1px solid rgba(59, 130, 246, 0.2);
-        }
-        .ts-dd-item .ts-delete-profile-btn {
-            margin-left: auto;
-            color: #ef4444;
-            opacity: 0.4;
-            padding: 2px 6px;
-            border-radius: 4px;
-            transition: all 0.15s;
-        }
-        .ts-dd-item .ts-delete-profile-btn:hover { opacity: 1; background: rgba(239, 68, 68, 0.15); }
-
-        .ts-preset-save-row {
-            border-top: 1px solid rgba(255,255,255,0.06);
-            padding-top: 8px;
-            margin-top: 4px;
-            display: flex;
-            gap: 6px;
-        }
-        .ts-preset-input {
-            flex: 1;
-            background: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 6px;
-            padding: 4px 8px;
-            color: #fff;
-            font-size: 0.75rem;
-        }
-        .ts-preset-input:focus { border-color: #3b82f6; outline: none; }
-
-        .ts-glass-btn {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.09);
-            color: #f1f5f9;
-            padding: 9px 16px;
-            border-radius: 12px;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.82rem;
-            font-weight: 600;
-            transition: all 0.2s ease;
-            user-select: none;
-        }
-        .ts-glass-btn:hover { border-color: rgba(59, 130, 246, 0.5); background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-        .ts-glass-btn.active { background: rgba(255, 255, 255, 0.15); border-color: #10b981; box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); color: #34d399; }
-        .ts-glass-btn.ts-compare-active { border-color: #f59e0b !important; color: #fbbf24 !important; background: rgba(245, 158, 11, 0.15) !important; }
-
-        .ts-extractor-box {
-            background: rgba(0, 0, 0, 0.35);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            padding: 12px 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-        .ts-url-display { font-family: 'Fira Code', monospace; font-size: 0.78rem; color: #34d399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-
-        .ts-stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 12px;
-            background: rgba(0, 0, 0, 0.2);
-            padding: 14px 16px;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.02);
-            font-size: 0.8rem;
-            color: #94a3b8;
-        }
-        .ts-grid-item { display: flex; align-items: center; gap: 8px; }
-        .ts-grid-item i { color: #64748b; width: 14px; text-align: center; }
-        .ts-grid-item strong { color: #f1f5f9; font-variant-numeric: tabular-nums; margin-left: auto; }
-
-        #ts-dimmer-screen {
-            position: fixed;
-            top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(4, 4, 6, 0.88);
-            z-index: ${CONFIG.Z_INDEX_DIMMER} !important;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.4s ease;
-        }
-        ${SELECTORS.JW_CONTAINER}, ${SELECTORS.EMBED_FRAME}, .player-wrap {
-            position: relative;
-            z-index: ${CONFIG.Z_INDEX_ELEVATED} !important;
-        }
-    `);
-
-    // Load State Parameters Out of Cache Memory
     let config = GM_getValue(STORAGE_KEYS.CONFIG, { brightness: 100, contrast: 100, saturation: 100 });
     let activeProfileKey = GM_getValue(STORAGE_KEYS.ACTIVE_PROFILE, 'natural');
     let dimmerActive = GM_getValue(STORAGE_KEYS.THEATER_STATE, false);
@@ -280,13 +50,6 @@
     let discoveredStreamUrl = "";
     let sliders = {};
 
-    // High-Performance Telemetry State Cache (Prevents DOM Thrashing)
-    let telemetryMemory = {
-        lastTotalFrames: 0,
-        lastTimestamp: 0
-    };
-
-    // Standard Profiles Factory Base Configuration
     const baseProfiles = {
         natural: { name: "Natural Profile", icon: "fa-leaf", brightness: 100, contrast: 100, saturation: 100 },
         dynamic: { name: "Dynamic Mode", icon: "fa-bolt", brightness: 104, contrast: 114, saturation: 120 },
@@ -304,27 +67,248 @@
         return { ...baseProfiles, ...userProfiles };
     }
 
-    function getVisualTarget() {
-        const jwContainer = document.querySelector(SELECTORS.JW_CONTAINER);
-        if (jwContainer && jwContainer.style.display !== 'none') return jwContainer;
-        return document.querySelector(SELECTORS.EMBED_FRAME);
-    }
+    GM_addStyle(`
+        ${SELECTORS.NATIVE_DROPDOWN_CONTAINER},
+        div.flex.items-center.justify-between.gap-3.mt-3 > div.relative {
+            z-index: 99999 !important;
+        }
+        ${SELECTORS.NATIVE_DROPDOWN_MENU} {
+            z-index: 999999 !important;
+        }
+
+        #ts-enhancer-glass {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background: rgba(0, 0, 0, 0.4) !important;
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 16px;
+            font-family: inherit;
+            color: #ffffff;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+            z-index: ${CONFIG.Z_INDEX_PANEL} !important;
+            position: relative;
+            width: 100%;
+            transition: opacity 0.35s ease, filter 0.35s ease, z-index 0.35s ease;
+        }
+
+        #ts-enhancer-glass.ui-dimmed {
+            opacity: 0.08 !important;
+            filter: blur(1px) brightness(40%);
+            z-index: 1000 !important;
+            pointer-events: none !important;
+        }
+
+        .ts-section-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+        .ts-slider-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-width: 160px;
+            flex: 1;
+        }
+        .ts-slider-label-zone {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.5);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .ts-slider-label-zone strong {
+            color: #ffffff;
+            font-size: 11px;
+        }
+        .ts-custom-track {
+            position: relative;
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 99px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .ts-custom-track:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        .ts-custom-fill {
+            position: absolute;
+            left: 0; top: 0; height: 100%;
+            background: #ffffff;
+            border-radius: 99px;
+            pointer-events: none;
+        }
+        .ts-custom-thumb {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 14px;
+            height: 14px;
+            background: #ffffff;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            transition: transform 0.1s ease;
+        }
+        .ts-custom-track:hover .ts-custom-thumb {
+            transform: translate(-50%, -50%) scale(1.15);
+            background: #E6FF00;
+        }
+
+        .ts-dd-container { position: relative; display: inline-block; min-width: 200px; }
+        .ts-dd-trigger {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid transparent;
+            color: #ffffff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 700;
+            transition: all 0.2s;
+        }
+        .ts-dd-trigger:hover, .ts-dd-container.open .ts-dd-trigger {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .ts-dd-trigger i.chevron { transition: transform 0.2s; font-size: 11px; color: rgba(255,255,255,0.6); }
+        .ts-dd-container.open .ts-dd-trigger i.chevron { transform: rotate(180deg); }
+
+        /* Swapped from bottom setup to a true top alignment so the profiles drop downwards */
+        .ts-dd-menu {
+            position: absolute;
+            top: calc(100% + 4px); left: 0; width: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 6px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            display: none;
+            flex-direction: column;
+            gap: 2px;
+            z-index: 999999 !important;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .ts-dd-container.open .ts-dd-menu { display: flex; }
+        .ts-dd-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .ts-dd-item:hover { background: rgba(255, 255, 255, 0.05); color: #ffffff; }
+        .ts-dd-item.selected {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+
+        .ts-preset-save-row {
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 6px;
+            margin-top: 4px;
+            display: flex;
+            gap: 6px;
+        }
+        .ts-preset-input {
+            flex: 1;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: #fff;
+            font-size: 12px;
+        }
+
+        .ts-glass-btn {
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.7);
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .ts-glass-btn:hover { background: rgba(255, 255, 255, 0.1); color: #ffffff; }
+        .ts-glass-btn.active { background: rgba(255, 255, 255, 0.15); color: #E6FF00; }
+        .ts-glass-btn.ts-compare-active { color: #E6FF00 !important; background: rgba(255, 255, 255, 0.15) !important; }
+
+        .ts-extractor-box {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .ts-extractor-title { font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.05em; min-width: 90px; }
+        .ts-url-display { font-family: monospace; font-size: 12px; color: #34d399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+
+        .ts-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 14px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        .ts-grid-item { display: flex; align-items: center; justify-content: space-between; }
+        .ts-grid-item span { color: rgba(255, 255, 255, 0.4); }
+        .ts-grid-item strong { color: #ffffff; font-weight: 700; }
+
+        #ts-dimmer-screen {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(3, 3, 5, 0.96);
+            z-index: ${CONFIG.Z_INDEX_DIMMER} !important;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        div.w-full.bg-black.overflow-hidden.relative.aspect-video {
+            position: relative;
+            z-index: ${CONFIG.Z_INDEX_ELEVATED} !important;
+        }
+    `);
 
     function applyVisualModifiers() {
-        const activeElement = getVisualTarget();
-        const jwContainer = document.querySelector(SELECTORS.JW_CONTAINER);
-        const iframeContainer = document.querySelector(SELECTORS.EMBED_FRAME);
+        const iframeTarget = document.querySelector(SELECTORS.EMBED_FRAME);
+        if (!iframeTarget) return;
 
-        // Before/After Bypass Switch Check
-        const filterString = isComparing
+        iframeTarget.style.filter = isComparing
             ? 'brightness(100%) contrast(100%) saturate(100%)'
             : `brightness(${config.brightness}%) contrast(${config.contrast}%) saturate(${config.saturation}%)`;
-
-        if (activeElement) {
-            activeElement.style.filter = filterString;
-        }
-        if (jwContainer && jwContainer !== activeElement) jwContainer.style.filter = 'none';
-        if (iframeContainer && iframeContainer !== activeElement) iframeContainer.style.filter = 'none';
     }
 
     function saveCurrentState() {
@@ -333,39 +317,20 @@
     }
 
     function pullSourceAddress() {
-        let currentLink = "No active stream track loaded.";
-        const jw = window._jwInstance;
-
-        if (jw && typeof jw.getPlaylist === 'function') {
-            const playlist = jw.getPlaylist();
-            if (playlist && playlist[0]) {
-                currentLink = playlist[0].file || (playlist[0].sources && playlist[0].sources[0]?.file) || currentLink;
-            }
-        }
-        if (currentLink.startsWith("No") && window._streamData) {
-            currentLink = window._streamData.url || currentLink;
-        }
-        if (currentLink.startsWith("No")) {
-            const iframe = document.querySelector(SELECTORS.EMBED_FRAME);
-            if (iframe && iframe.src && iframe.style.display !== 'none') currentLink = iframe.src;
-        }
+        const iframe = document.querySelector(SELECTORS.EMBED_FRAME);
+        let currentLink = iframe && iframe.src ? iframe.src : "No active stream track located.";
 
         if (discoveredStreamUrl !== currentLink) {
             discoveredStreamUrl = currentLink;
             const element = document.getElementById('ts-stream-link-str');
             if (element) {
                 element.textContent = discoveredStreamUrl;
-                element.style.color = (discoveredStreamUrl.includes('.m3u8') || discoveredStreamUrl.includes('tracks-v1a1')) ? '#34d399' : '#60a5fa';
             }
         }
     }
 
-    // Polymorphic Real-Time Diagnostics Interface Engine
     function queryPlaybackTelemetry() {
-        const jw = window._jwInstance;
-        const video = document.querySelector(SELECTORS.NATIVE_VIDEO);
-        const jwContainer = document.querySelector(SELECTORS.JW_CONTAINER);
-
+        const iframe = document.querySelector(SELECTORS.EMBED_FRAME);
         const nodes = {
             framework: document.getElementById('ts-telemetry-framework'),
             dimensions: document.getElementById('ts-telemetry-dimensions'),
@@ -377,112 +342,22 @@
 
         if (!nodes.framework) return;
 
-        const targetElement = getVisualTarget();
-        nodes.dimensions.textContent = targetElement ? `${targetElement.clientWidth}x${targetElement.clientHeight}` : 'Unknown';
+        if (iframe) {
+            nodes.framework.textContent = 'IFrame Core Wrapper';
+            nodes.dimensions.textContent = `${iframe.clientWidth}x${iframe.clientHeight}`;
 
-        // 1. Native JWPlayer Tracking Route
-        if (jw && typeof jw.getQualityLevels === 'function' && jwContainer && jwContainer.style.display !== 'none') {
-            nodes.framework.textContent = 'JWPlayer Native';
-
-            // Extract Quality Level & Estimated Bitrates Safely and combine into a unified UX string
-            const levels = jw.getQualityLevels();
-            const idx = jw.getCurrentQuality();
-            if (levels && levels[idx]) {
-                const currentLevel = levels[idx];
-                let resolutionLabel = currentLevel.label || '';
-                if (resolutionLabel && !isNaN(resolutionLabel)) resolutionLabel += 'p';
-
-                const bitrateKbps = currentLevel.bitrate ? `${Math.round(currentLevel.bitrate / 1000)} kbps` : 'Adaptive';
-                nodes.bitrate.textContent = resolutionLabel ? `${resolutionLabel} (${bitrateKbps})` : bitrateKbps;
-            } else {
-                nodes.bitrate.textContent = 'Unknown';
+            try {
+                const urlObj = new URL(iframe.src);
+                const pathParts = urlObj.pathname.split('/');
+                const channelSlug = pathParts[pathParts.length - 1] || 'Sandbox';
+                nodes.bitrate.textContent = channelSlug.toUpperCase();
+            } catch(e) {
+                nodes.bitrate.textContent = 'Cross-Origin';
             }
 
-            // Real-time Rendered FPS Calculation via high-precision closure memory state
-            if (video && video.getVideoPlaybackQuality) {
-                const quality = video.getVideoPlaybackQuality();
-                if (quality.totalVideoFrames > 0) {
-                    const currentFrames = quality.totalVideoFrames;
-                    const now = performance.now();
-
-                    if (telemetryMemory.lastTimestamp > 0 && now > telemetryMemory.lastTimestamp) {
-                        const frameDelta = currentFrames - telemetryMemory.lastTotalFrames;
-                        const timeDeltaSeconds = (now - telemetryMemory.lastTimestamp) / 1000;
-                        const calculatedFps = Math.round(frameDelta / timeDeltaSeconds);
-
-                        if (calculatedFps >= 0 && calculatedFps < 144) {
-                            if (video.paused) {
-                                nodes.fps.textContent = '0 FPS (Paused)';
-                            } else if (frameDelta === 0 && video.readyState < 3) {
-                                nodes.fps.textContent = 'Stalled / Buffering';
-                            } else {
-                                nodes.fps.textContent = `${calculatedFps} FPS`;
-                            }
-                        } else {
-                            nodes.fps.textContent = 'Measuring...';
-                        }
-                    } else {
-                        nodes.fps.textContent = 'Measuring...';
-                    }
-
-                    telemetryMemory.lastTotalFrames = currentFrames;
-                    telemetryMemory.lastTimestamp = now;
-                } else {
-                    nodes.fps.textContent = 'Measuring...';
-                }
-                nodes.dropped.textContent = quality.droppedVideoFrames ?? '0';
-            } else {
-                nodes.fps.textContent = 'Not Exposed';
-                nodes.dropped.textContent = 'Not Exposed';
-            }
-
-            // High-Precision Timeline Offset / Live Playhead Evaluation Engine
-            if (typeof jw.getDuration === 'function' && typeof jw.getPosition === 'function') {
-                const duration = jw.getDuration();
-                const position = jw.getPosition();
-
-                if (duration === Infinity || duration < 0) {
-                    nodes.latency.textContent = '0s (Live Edge)';
-                } else if (duration > 0 && position > 0) {
-                    const offsetDistance = Math.max(0, Math.round(duration - position));
-                    nodes.latency.textContent = offsetDistance > 0 ? `${offsetDistance}s Behind Live` : '0s (Live Edge)';
-                } else {
-                    nodes.latency.textContent = 'Measuring...';
-                }
-            } else {
-                nodes.latency.textContent = 'Not Exposed';
-            }
-        }
-        // 2. Direct Vanilla HTML5 Video Interrogation Tag Route
-        else if (video && video.style.display !== 'none') {
-            nodes.framework.textContent = 'HTML5 Native Tag';
-            nodes.bitrate.textContent = video.videoHeight ? `${video.videoHeight}p (Direct)` : 'Unknown';
-            nodes.latency.textContent = 'Not Exposed';
-
-            if (video.getVideoPlaybackQuality) {
-                const quality = video.getVideoPlaybackQuality();
-                nodes.dropped.textContent = quality.droppedVideoFrames ?? '0';
-                nodes.fps.textContent = video.paused ? '0 FPS (Paused)' : 'Exposed (Variable)';
-            } else {
-                nodes.dropped.textContent = 'Not Exposed';
-                nodes.fps.textContent = 'Not Exposed';
-            }
-        }
-        // 3. Cross-Origin Sandbox Iframe Proxy Secure Degrade Route
-        else if (document.querySelector(SELECTORS.EMBED_FRAME)?.style.display !== 'none') {
-            nodes.framework.textContent = 'IFrame Proxy';
-            nodes.fps.textContent = 'Not Exposed (Secured)';
-            nodes.bitrate.textContent = 'Not Exposed (Secured)';
-            nodes.dropped.textContent = 'Not Exposed';
-            nodes.latency.textContent = 'Not Exposed';
-        }
-        // 4. Engine Initialization Setup Matrix State
-        else {
-            nodes.framework.textContent = 'Interrogating...';
-            nodes.fps.textContent = 'Searching...';
-            nodes.bitrate.textContent = 'Searching...';
-            nodes.dropped.textContent = '0';
-            nodes.latency.textContent = 'Searching...';
+            nodes.fps.textContent = 'Managed by Frame';
+            nodes.dropped.textContent = 'Protected context';
+            nodes.latency.textContent = 'Live Feed';
         }
     }
 
@@ -528,7 +403,7 @@
 
         track.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const direction = e.deltaY < 0 ? 4 : -4;
+            const direction = e.deltaY < 0 ? 2 : -2;
             const updatedValue = parseInt(config[key]) + direction;
             updateSliderPositions(updatedValue);
             activeProfileKey = 'custom';
@@ -555,7 +430,7 @@
             item.className = `ts-dd-item ${activeProfileKey === key ? 'selected' : ''}`;
             item.setAttribute('data-value', key);
             item.innerHTML = `
-                <i class="fas ${combined[key].icon}"></i> ${combined[key].name}
+                <span>${combined[key].name}</span>
                 ${isUserPreset ? `<i class="fas fa-trash-alt ts-delete-profile-btn" data-delete="${key}"></i>` : ''}
             `;
 
@@ -591,12 +466,11 @@
             menuContainer.appendChild(item);
         });
 
-        // Append Inline Save Form UI Directly Inside Options Matrix
         const formRow = document.createElement('div');
         formRow.className = 'ts-preset-save-row';
         formRow.innerHTML = `
-            <input type="text" class="ts-preset-input" id="ts-preset-name-input" placeholder="Save as Preset..." maxlength="18">
-            <button class="ts-glass-btn" id="ts-btn-save-preset" style="padding: 4px 10px; font-size: 0.7rem; border-radius: 6px;"><i class="fas fa-plus"></i></button>
+            <input type="text" class="ts-preset-input" id="ts-preset-name-input" placeholder="New Preset..." maxlength="18">
+            <button class="ts-glass-btn" id="ts-btn-save-preset" style="padding: 4px 10px; font-size: 11px; border-radius: 4px;">Save</button>
         `;
 
         formRow.querySelector('#ts-btn-save-preset').addEventListener('click', (e) => {
@@ -631,7 +505,7 @@
         const data = combined[profileKey];
         const labelEl = document.getElementById('ts-dd-current-label');
         if (labelEl && data) {
-            labelEl.innerHTML = `<i class="fas ${data.icon}"></i> ${data.name}`;
+            labelEl.innerHTML = `<span>${data.name}</span>`;
         }
         document.querySelectorAll('.ts-dd-item').forEach(item => {
             item.classList.toggle('selected', item.getAttribute('data-value') === profileKey);
@@ -654,25 +528,24 @@
         panel.id = 'ts-enhancer-glass';
         panel.innerHTML = `
             <div class="ts-section-row">
-                <button class="ts-glass-btn" id="ts-btn-dimmer"><i class="fas fa-moon"></i> Lights Out</button>
-                <button class="ts-glass-btn" id="ts-btn-compare"><i class="fas fa-eye"></i> Hold to Compare</button>
+                <button class="ts-glass-btn" id="ts-btn-dimmer">Lights Out</button>
+                <button class="ts-glass-btn" id="ts-btn-compare">Hold to Compare</button>
 
-                <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+                <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
                     <div class="ts-dd-container" id="ts-profile-dropdown">
                         <div class="ts-dd-trigger">
-                            <span id="ts-dd-current-label"><i class="fas fa-leaf"></i> Natural Profile</span>
-                            <i class="fas fa-chevron-down chevron"></i>
+                            <span id="ts-dd-current-label">Natural Profile</span>
+                            <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
                         </div>
-                        <div class="ts-dd-menu" id="ts-dropdown-menu-list">
-                           </div>
+                        <div class="ts-dd-menu" id="ts-dropdown-menu-list"></div>
                     </div>
-                    <button class="ts-glass-btn" id="ts-reset-all"><i class="fas fa-undo"></i> Reset</button>
+                    <button class="ts-glass-btn" id="ts-reset-all">Reset</button>
                 </div>
             </div>
 
-            <div class="ts-section-row" style="margin-top: 4px;">
+            <div class="ts-section-row" style="margin-top: 6px; margin-bottom: 6px;">
                 <div class="ts-slider-wrapper">
-                    <div class="ts-slider-label-zone"><span>BRIGHTNESS</span><span id="ts-val-bright">100%</span></div>
+                    <div class="ts-slider-label-zone"><span>BRIGHTNESS</span><strong id="ts-val-bright">100%</strong></div>
                     <div class="ts-custom-track" id="ts-track-bright">
                         <div class="ts-custom-fill" id="ts-fill-bright"></div>
                         <div class="ts-custom-thumb" id="ts-thumb-bright"></div>
@@ -680,7 +553,7 @@
                 </div>
 
                 <div class="ts-slider-wrapper">
-                    <div class="ts-slider-label-zone"><span>CONTRAST</span><span id="ts-val-contrast">100%</span></div>
+                    <div class="ts-slider-label-zone"><span>CONTRAST</span><strong id="ts-val-contrast">100%</strong></div>
                     <div class="ts-custom-track" id="ts-track-contrast">
                         <div class="ts-custom-fill" id="ts-fill-contrast"></div>
                         <div class="ts-custom-thumb" id="ts-thumb-contrast"></div>
@@ -688,7 +561,7 @@
                 </div>
 
                 <div class="ts-slider-wrapper">
-                    <div class="ts-slider-label-zone"><span>SATURATION</span><span id="ts-val-saturate">100%</span></div>
+                    <div class="ts-slider-label-zone"><span>SATURATION</span><strong id="ts-val-saturate">100%</strong></div>
                     <div class="ts-custom-track" id="ts-track-saturate">
                         <div class="ts-custom-fill" id="ts-fill-saturate"></div>
                         <div class="ts-custom-thumb" id="ts-thumb-saturate"></div>
@@ -697,22 +570,18 @@
             </div>
 
             <div class="ts-extractor-box">
-                <div style="font-size: 0.78rem; font-weight:800; color: #cbd5e1; display:flex; align-items:center; gap:6px; min-width:95px;">
-                    <i class="fas fa-link" style="color:#34d399;"></i> STREAM LINK:
-                </div>
+                <div class="ts-extractor-title">EMBED PATH:</div>
                 <div class="ts-url-display" id="ts-stream-link-str">Interrogating native streams...</div>
-                <button class="ts-glass-btn" id="ts-btn-copy-link" style="padding: 5px 12px; font-size:0.72rem; border-radius:8px; background:rgba(52,211,153,0.06);">
-                    <i class="fas fa-copy"></i> Copy
-                </button>
+                <button class="ts-glass-btn" id="ts-btn-copy-link" style="padding: 4px 12px; font-size:12px; border-radius:4px; background:rgba(255,255,255,0.05);">Copy</button>
             </div>
 
             <div class="ts-stats-grid">
-                <div class="ts-grid-item"><i class="fas fa-tv"></i> Framework: <strong id="ts-telemetry-framework">Auto</strong></div>
-                <div class="ts-grid-item"><i class="fas fa-compress"></i> Dimensions: <strong id="ts-telemetry-dimensions">--</strong></div>
-                <div class="ts-grid-item"><i class="fas fa-bolt"></i> Rendered FPS: <strong id="ts-telemetry-fps">Measuring...</strong></div>
-                <div class="ts-grid-item"><i class="fas fa-signal"></i> Quality Profile: <strong id="ts-telemetry-bitrate">--</strong></div>
-                <div class="ts-grid-item"><i class="fas fa-exclamation-triangle"></i> Dropped Frames: <strong id="ts-telemetry-dropped">0</strong></div>
-                <div class="ts-grid-item"><i class="fas fa-clock"></i> Live Offset: <strong id="ts-telemetry-latency">--</strong></div>
+                <div class="ts-grid-item"><span>Pipeline:</span> <strong id="ts-telemetry-framework">Auto</strong></div>
+                <div class="ts-grid-item"><span>Resolution size:</span> <strong id="ts-telemetry-dimensions">--</strong></div>
+                <div class="ts-grid-item"><span>Framerate:</span> <strong id="ts-telemetry-fps">--</strong></div>
+                <div class="ts-grid-item"><span>Active Channel:</span> <strong id="ts-telemetry-bitrate">--</strong></div>
+                <div class="ts-grid-item"><span>Buffer Guard:</span> <strong id="ts-telemetry-dropped">0</strong></div>
+                <div class="ts-grid-item"><span>Broadcast Latency:</span> <strong id="ts-telemetry-latency">--</strong></div>
             </div>
         `;
 
@@ -725,94 +594,90 @@
         populateDropdownMenu();
         setDropdownActiveSelection(activeProfileKey);
 
-        const ddContainer = document.getElementById('ts-profile-dropdown');
-        const ddTrigger = ddContainer.querySelector('.ts-dd-trigger');
-
+        const ddTrigger = panel.querySelector('.ts-dd-trigger');
+        const ddContainer = panel.querySelector('#ts-profile-dropdown');
         ddTrigger.addEventListener('click', (e) => {
             e.stopPropagation();
             ddContainer.classList.toggle('open');
         });
+        document.addEventListener('click', () => ddContainer.classList.remove('open'));
 
-        window.addEventListener('click', () => ddContainer.classList.remove('open'));
+        panel.querySelector('#ts-reset-all').addEventListener('click', () => {
+            activeProfileKey = 'natural';
+            sliders.bright.reset();
+            sliders.contrast.reset();
+            sliders.saturate.reset();
+            setDropdownActiveSelection('natural');
+            saveCurrentState();
+        });
 
-        // Split-Second Before/After Engine Comparison Event Mapping
-        const compareBtn = document.getElementById('ts-btn-compare');
-        const triggerCompareOn = () => {
+        const dimmerBtn = panel.querySelector('#ts-btn-dimmer');
+        const dimmerOverlay = document.getElementById('ts-dimmer-screen');
+
+        const applyDimmerState = (active) => {
+            dimmerBtn.classList.toggle('active', active);
+            panel.classList.toggle('ui-dimmed', active);
+            if (dimmerOverlay) {
+                dimmerOverlay.style.opacity = active ? '1' : '0';
+                dimmerOverlay.style.pointerEvents = active ? 'auto' : 'none';
+            }
+        };
+
+        dimmerBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dimmerActive = !dimmerActive;
+            GM_setValue(STORAGE_KEYS.THEATER_STATE, dimmerActive);
+            applyDimmerState(dimmerActive);
+        });
+
+        if (dimmerOverlay) {
+            dimmerOverlay.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dimmerActive = false;
+                GM_setValue(STORAGE_KEYS.THEATER_STATE, false);
+                applyDimmerState(false);
+            });
+            dimmerOverlay.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+            dimmerOverlay.addEventListener('mouseup', (e) => { e.preventDefault(); e.stopPropagation(); });
+        }
+
+        applyDimmerState(dimmerActive);
+
+        const compareBtn = panel.querySelector('#ts-btn-compare');
+        const startComparison = () => {
             isComparing = true;
             compareBtn.classList.add('ts-compare-active');
             applyVisualModifiers();
         };
-        const triggerCompareOff = () => {
+        const stopComparison = () => {
             isComparing = false;
             compareBtn.classList.remove('ts-compare-active');
             applyVisualModifiers();
         };
+        compareBtn.addEventListener('mousedown', startComparison);
+        compareBtn.addEventListener('mouseup', stopComparison);
+        compareBtn.addEventListener('mouseleave', stopComparison);
 
-        compareBtn.addEventListener('mousedown', triggerCompareOn);
-        compareBtn.addEventListener('mouseup', triggerCompareOff);
-        compareBtn.addEventListener('mouseleave', triggerCompareOff);
-        compareBtn.addEventListener('touchstart', triggerCompareOn, { passive: true });
-        compareBtn.addEventListener('touchend', triggerCompareOff, { passive: true });
-
-        // Initialize Theater Engine State
-        const dimBtn = document.getElementById('ts-btn-dimmer');
-        const screen = document.getElementById('ts-dimmer-screen');
-        if (screen && dimmerActive) {
-            screen.style.opacity = '1';
-            dimBtn.classList.add('active');
-        }
-
-        dimBtn.addEventListener('click', () => {
-            dimmerActive = !dimmerActive;
-            if (screen) screen.style.opacity = dimmerActive ? '1' : '0';
-            dimBtn.classList.toggle('active', dimmerActive);
-            GM_setValue(STORAGE_KEYS.THEATER_STATE, dimmerActive);
-        });
-
-        document.getElementById('ts-reset-all').addEventListener('click', () => {
-            sliders.bright.reset(); sliders.contrast.reset(); sliders.saturate.reset();
-            activeProfileKey = 'natural';
-            setDropdownActiveSelection('natural');
-            saveCurrentState();
-            populateDropdownMenu();
-        });
-
-        document.getElementById('ts-btn-copy-link').addEventListener('click', () => {
-            if (!discoveredStreamUrl || discoveredStreamUrl.startsWith("No")) {
-                alert("Stream source is currently unreachable.");
-                return;
-            }
+        const copyBtn = panel.querySelector('#ts-btn-copy-link');
+        copyBtn.addEventListener('click', () => {
+            if (!discoveredStreamUrl || discoveredStreamUrl.startsWith("No")) return;
             GM_setClipboard(discoveredStreamUrl);
-            const copyBtn = document.getElementById('ts-btn-copy-link');
-            copyBtn.innerHTML = `<i class="fas fa-check" style="color:#34d399;"></i> Copied!`;
-            setTimeout(() => { copyBtn.innerHTML = `<i class="fas fa-copy"></i> Copy`; }, CONFIG.COPY_RESET_TIMEOUT);
+            const innerHtml = copyBtn.innerHTML;
+            copyBtn.innerHTML = `Copied!`;
+            setTimeout(() => { copyBtn.innerHTML = innerHtml; }, 1800);
         });
 
-        // Event-driven Immediate Structural Response Hooks
-        const selectorEl = document.querySelector(SELECTORS.NATIVE_SELECTOR);
-        if (selectorEl) {
-            selectorEl.addEventListener('change', () => setTimeout(applyVisualModifiers, 300));
-        }
-        document.querySelectorAll(SELECTORS.NATIVE_SOURCE_BTNS).forEach(btn => {
-            btn.addEventListener('click', () => setTimeout(applyVisualModifiers, 300));
-        });
-
-        // Execution Timers Framework
         setInterval(queryPlaybackTelemetry, CONFIG.TICKER_INTERVAL);
         setInterval(pullSourceAddress, CONFIG.TICKER_INTERVAL);
-        setInterval(applyVisualModifiers, CONFIG.TICKER_INTERVAL);
-
-        if (window._jwInstance && typeof window._jwInstance.on === 'function') {
-            window._jwInstance.on('levelsChanged', queryPlaybackTelemetry);
-            window._jwInstance.on('visualQuality', queryPlaybackTelemetry);
-        }
     }
 
-    const verifyDomPipeline = setInterval(() => {
+    const coreDaemonLoader = setInterval(() => {
         if (document.querySelector(SELECTORS.TOOLBAR_ANCHOR)) {
             injectPrecisionSuite();
-            clearInterval(verifyDomPipeline);
+            applyVisualModifiers();
         }
     }, CONFIG.DOM_CHECK_INTERVAL);
 
+    window.addEventListener('unload', () => clearInterval(coreDaemonLoader));
 })();
