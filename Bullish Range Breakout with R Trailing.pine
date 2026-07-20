@@ -1,0 +1,215 @@
+//@version=6
+indicator("Bullish Range Breakout with R Trailing", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// --- USER INPUT CONFIGURATION ---
+var string grp_1 = "Pivot Settings"
+float min_pivot_pct   = input.float(0.5, title="Minimum Pivot Range (%)", minval=0.01, group=grp_1)
+float max_pivot_pct   = input.float(5.0, title="Maximum Pivot Range (%)", minval=0.01, group=grp_1)
+
+var string grp_2 = "Risk Management"
+int max_trades_per_day = input.int(2, title="Max Trades Per Day", minval=1, group=grp_2)
+int lot_size           = input.int(50, title="Lot Size", minval=1, group=grp_2)
+int num_lots           = input.int(1, title="Number of Lots", minval=1, group=grp_2)
+
+var string grp_tgt = "Target Display Grid"
+bool show_r_grid       = input.bool(true, title="Enable Target R Grid Lines & Labels", group=grp_tgt)
+int user_max_r         = input.int(5, title="Number of R Lines to Show", minval=1, maxval=20, group=grp_tgt)
+
+// --- NEW DESIGN AND CUSTOMIZATION INPUTS ---
+color r_line_color     = input.color(color.gray, title="R Line Color", group=grp_tgt)
+int r_line_width       = input.int(1, title="R Line Width", minval=1, maxval=5, group=grp_tgt)
+string r_line_style_in = input.string("Dotted", title="R Line Style", options=["Solid", "Dashed", "Dotted"], group=grp_tgt)
+
+var current_line_style = line.style_dotted
+if r_line_style_in == "Solid"
+    current_line_style := line.style_solid
+else if r_line_style_in == "Dashed"
+    current_line_style := line.style_dashed
+
+// --- SESSION & TIME BOUNDS ENGINE ---
+is_new_day = ta.change(time("D")) != 0
+is_last_candle_of_day = time_close("D", syminfo.session) == time_close
+
+var int trades_today = 0
+if is_new_day
+    trades_today := 0
+
+// --- STRATEGY STRUCTURAL STATE VARIABLES ---
+var bool pivot_found = false
+var float pivot_high = na
+var float pivot_low = na
+var int pivot_bar_index = na
+
+if is_new_day
+    pivot_found     := false
+    pivot_high      := na
+    pivot_low       := na
+    pivot_bar_index := na
+
+// --- PIVOT CANDLE FILTERS ---
+is_green_candle  = close > open
+candle_range_pct = ((high - low) / low) * 100.0
+is_valid_pivot   = is_green_candle and (candle_range_pct >= min_pivot_pct) and (candle_range_pct <= max_pivot_pct)
+
+if not pivot_found and is_valid_pivot
+    pivot_found     := true
+    pivot_high      := high
+    pivot_low       := low
+    pivot_bar_index := bar_index
+
+// --- REAL-TIME SCRIPT EXCLUSIONS & TRAILING STOP ENGINE ---
+var float current_sl        = na
+var float entry_price       = na
+var int current_multiplier  = 0
+var float initial_risk      = na
+var bool is_active_trade    = false 
+var int entry_bar_index     = na
+var float next_target_level = na
+
+atr_val = ta.atr(14)
+int labels_on_top    = 0
+int labels_on_bottom = 0
+
+if ta.change(bar_index) != 0
+    labels_on_top    := 0
+    labels_on_bottom := 0
+
+var line[] r_lines   = array.new_line()
+var label[] r_labels = array.new_label()
+
+clear_active_grid() =>
+    if array.size(r_lines) > 0
+        for i = 0 to array.size(r_lines) - 1
+            line.delete(array.get(r_lines, i))
+            label.delete(array.get(r_labels, i))
+        array.clear(r_lines)
+        array.clear(r_labels)
+
+// --- UPGRADED STEP-BY-STEP INTRABAR EXECUTION AND EVALUATION ---
+if is_active_trade
+    risk_distance = entry_price - pivot_low
+    float sl_at_bar_start = current_sl 
+    bool targets_hit_this_bar = false
+    bool upward_bias = (close >= entry_price)
+    
+    // Check for Intra-candle Trailing Stop Updates
+    if risk_distance > 0
+        int potential_multiplier = math.floor((high - entry_price) / risk_distance)
+        
+        while potential_multiplier > current_multiplier
+            // Lock in the previous R as the new SL
+            if current_multiplier >= 1
+                current_sl := entry_price + (current_multiplier * risk_distance)
+            else
+                current_sl := entry_price // Break-even for 1R hit
+            
+            current_multiplier := current_multiplier + 1
+            targets_hit_this_bar := true
+            
+            string target_reason = (current_multiplier - 1) == 0 ? "1R Hit (BE)" : str.tostring(current_multiplier - 1) + "R Locked"
+            labels_on_bottom := labels_on_bottom + 1
+            float sl_offset = low - (atr_val * (0.4 + labels_on_bottom * 0.45))
+            
+            label.new(x=bar_index, y=sl_offset, text="SL TRAILED\nReason: " + target_reason + "\nNew SL: " + str.tostring(current_sl, "#.##"), color=color.new(color.orange, 75), textcolor=color.orange, style=label.style_label_up)
+        
+        next_target_level := entry_price + (current_multiplier * risk_distance)
+
+    bool trigger_exit = false
+    float exact_exit = na
+    float effective_sl = upward_bias ? sl_at_bar_start : current_sl
+    
+    if bar_index == entry_bar_index
+        float entry_check_sl = (upward_bias and targets_hit_this_bar) ? sl_at_bar_start : current_sl
+        if low <= entry_check_sl
+            trigger_exit := true
+            exact_exit := math.min(open, entry_check_sl)
+    else
+        if low <= effective_sl
+            trigger_exit := true
+            exact_exit := math.min(open, effective_sl)
+
+    if trigger_exit or is_last_candle_of_day
+        float exit_val = trigger_exit ? exact_exit : close
+        float points_moved = exit_val - entry_price
+        float pnl = points_moved * lot_size * num_lots
+        float move_pct = (points_moved / entry_price) * 100.0
+        float r_multiple = points_moved / initial_risk
+
+        string exit_reason = trigger_exit ? (exit_val == pivot_low ? "Initial Stop" : exit_val == entry_price ? "Break-even" : "Trailing Stop") : "End of Day Exit"
+
+        float invested = entry_price * lot_size * num_lots
+
+        string signPts = points_moved >= 0 ? "+" : ""
+        string signPct = move_pct >= 0 ? "+" : ""
+        string signPnl = pnl >= 0 ? "+" : ""
+        string signR   = r_multiple >= 0 ? "+" : ""
+
+        string label_text ="EXIT\n" + "Reason: " + exit_reason + "\n\nEntry: " + str.tostring(entry_price, "#.##") + "\nExit: " + str.tostring(exit_val, "#.##") + "\n\nCovered: " + signPts + str.tostring(points_moved, "#.##") + " pts" + "\nReturn: " + signPct + str.tostring(move_pct, "#.##") + "%" + "\nR: " + signR + str.tostring(r_multiple, "#.##") + "R" + "\n\nInvested: ₹" + str.tostring(invested, "#.##") + "\nP/L: " + signPnl + "₹" + str.tostring(pnl, "#.##")
+        labels_on_top := labels_on_top + 1
+        float exit_offset = high + (atr_val * (0.4 + labels_on_top * 0.75))
+        
+        label.new(x=bar_index, y=exit_offset, text=label_text, color=pnl >= 0 ? color.new(color.teal, 75) : color.new(color.red, 90), textcolor=pnl >= 0 ? color.teal : color.rgb(252, 4, 4), style=label.style_label_down)
+        
+        is_active_trade    := false
+        trades_today       := trades_today + 1
+        next_target_level  := na
+
+// --- EVALUATE ENTRY SCENARIOS ---
+can_trade_today = trades_today < max_trades_per_day
+allowed_entry_window = not is_last_candle_of_day
+has_crossed_pivot = ta.crossover(high, pivot_high) or (high >= pivot_high and open < pivot_high)
+entry_condition = pivot_found and not is_active_trade and can_trade_today and allowed_entry_window and has_crossed_pivot and bar_index > pivot_bar_index
+
+var float day_entry_price = na
+var float day_initial_risk = na
+var int day_start_bar = na
+
+if is_new_day
+    day_entry_price  := na
+    day_initial_risk := na
+    day_start_bar    := na
+    clear_active_grid() 
+else if entry_condition
+    clear_active_grid()
+    entry_price      := math.max(open, pivot_high) 
+    current_sl       := pivot_low
+    initial_risk     := entry_price - pivot_low
+    current_multiplier := 0
+    is_active_trade  := true
+    entry_bar_index  := bar_index 
+    next_target_level:= entry_price + initial_risk 
+    day_entry_price  := entry_price
+    day_initial_risk := initial_risk
+    day_start_bar    := bar_index
+    
+    string entry_text = "BUY #" + str.tostring(trades_today + 1) + "\n\nEntry: " + str.tostring(entry_price, "#.##") + "\nSL: " + str.tostring(pivot_low, "#.##") + "\nRisk (1R): " + str.tostring(initial_risk, "#.##")
+    labels_on_bottom := labels_on_bottom + 1
+    float entry_offset = low - (atr_val * (0.4 + labels_on_bottom * 0.45))
+    label.new(x=bar_index, y=entry_offset, text=entry_text, color=color.new(color.green, 75), textcolor=color.green, style=label.style_label_up)
+
+if is_new_day
+    current_sl       := na
+    next_target_level := na
+
+// --- DYNAMIC R GRID ENGINE ---
+if pivot_found and not is_new_day and not na(day_entry_price) and show_r_grid
+    if entry_condition
+        for r = 1 to user_max_r
+            float target_y = day_entry_price + (r * day_initial_risk)
+            line l = line.new(x1=day_start_bar, y1=target_y, x2=bar_index, y2=target_y, color=r_line_color, width=r_line_width, style=current_line_style)
+            label lb = label.new(x=bar_index, y=target_y, text=str.tostring(r) + "R", color=color.new(color.black, 100), textcolor=r_line_color, style=label.style_label_left, size=size.small)
+            array.push(r_lines, l)
+            array.push(r_labels, lb)
+    else if array.size(r_lines) > 0
+        for i = 0 to array.size(r_lines) - 1
+            line.set_x2(array.get(r_lines, i), bar_index)
+            label.set_x(array.get(r_labels, i), bar_index)
+
+if not show_r_grid and array.size(r_lines) > 0
+    clear_active_grid()
+
+// --- NATIVE PLOT ARCHITECTURE ---
+plot((pivot_found and not is_new_day) ? pivot_high : na, "Pivot High", color.green, 2, plot.style_steplinebr, linestyle=plot.linestyle_dashed)
+plot((pivot_found and not is_new_day) ? pivot_low : na, "Pivot Low", color.red, 2, plot.style_steplinebr, linestyle=plot.linestyle_dashed)
+plot((is_active_trade and not is_new_day) ? current_sl : na, "Trailing SL", color.orange, 2, plot.style_steplinebr, linestyle=plot.linestyle_dotted)
+plot((is_active_trade and not is_new_day) ? next_target_level : na, "Next Target", color.blue, 2, plot.style_steplinebr, linestyle=plot.linestyle_dotted)
